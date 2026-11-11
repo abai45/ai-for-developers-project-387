@@ -69,7 +69,7 @@ jobs:
           persist-credentials: false
 
       # Раннер начинает с чистого окружения: глобальные скиллы первой проектной
-      # сессии (to-spec, to-tickets) ставим отдельно. Проектные (implement-spec
+      # сессии (triage, to-spec, to-tickets) ставим отдельно. Проектные (implement-spec
       # и др.) лежат в .agents/skills/ и едут с репозиторием.
       - name: Установка Node для skills CLI
         if: steps.guard.outputs.safe == 'true'
@@ -77,9 +77,9 @@ jobs:
         with:
           node-version: 22
 
-      - name: Установка скиллов to-spec и to-tickets
+      - name: Установка скиллов triage, to-spec и to-tickets
         if: steps.guard.outputs.safe == 'true'
-        run: npx -y skills add mattpocock/skills --skill to-spec --skill to-tickets -a opencode -g -y
+        run: npx -y skills add mattpocock/skills --skill triage --skill to-spec --skill to-tickets -a opencode -g -y
 
       - name: Run OpenCode
         if: steps.guard.outputs.safe == 'true'
