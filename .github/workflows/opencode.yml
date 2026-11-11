@@ -9,11 +9,6 @@ on:
   pull_request_review_comment:
     types: [created]
 
-# Один прогон на issue/PR: новый вызов отменяет текущий (cancel-in-progress)
-concurrency:
-  group: opencode-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   opencode:
     # Команда в тексте + доверенный автор + комментарии ботов игнорируются.
@@ -24,6 +19,12 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Один активный прогон на issue/PR: новый вызов отменяет текущий
+    # (cancel-in-progress). На уровне задания, а не воркфлоу: пропущенный по
+    # фильтру запуск (например, собственный ответ агента) не отменяет работающий.
+    concurrency:
+      group: opencode-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+      cancel-in-progress: true
     # Стандартный режим OpenCode: чтение репозитория + OIDC-обмен на токен
     # GitHub App (им правами агент комментирует и пушит).
     # pull-requests: read — проверка head-репозитория PR (не fork ли он);
