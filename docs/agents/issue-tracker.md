@@ -30,6 +30,29 @@ When set to `yes`, PRs run through the same labels and states as issues, using t
 
 GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
 
+## Triage labels
+
+Входящие обращения и тикеты, подготовленные скиллами, отделяются метками. Словарь зафиксирован здесь, скилл `triage` использует именно эти строки.
+
+**Входящие обращения** (проходят автотриаж в `.github/workflows/opencode-triage.yml`):
+
+| Метка | Роль | Переходы |
+|---|---|---|
+| `needs-triage` | ещё не разобрано (первая по умолчанию) | → `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix` |
+| `needs-info` | не хватает данных, ждём ответа автора | → `needs-triage`, когда автор ответил |
+| `ready-for-agent` | согласовано, можно брать в работу | → закрытие после реализации |
+| `ready-for-human` | нужно решение или действие человека | → `ready-for-agent` после решения |
+| `wontfix` | реализовывать не будем | терминальная |
+
+**Подготовленные скиллами** (автотриаж их пропускает — `if` воркфлоу отсекает эти метки):
+
+| Метка | Кто создаёт |
+|---|---|
+| `spec` | скилл `to-spec` — спецификация, повторный триаж не нужен |
+| `ticket` | скилл `to-tickets` — тикет, готов к `implement-spec` |
+
+Нормальный переход входящего обращения: без метки → `needs-triage` → согласование → `ready-for-agent`. Тикет, созданный скиллами, узнаётся по метке `spec`/`ticket`, а не по автору.
+
 ## When a skill says "publish to the issue tracker"
 
 Create a GitHub issue.
