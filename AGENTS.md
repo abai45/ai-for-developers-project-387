@@ -36,7 +36,7 @@
 
 ### Issue tracker
 
-Issues живут в GitHub Issues этого репозитория (`abai45/ai-for-developers-project-386`), всё через `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues живут в GitHub Issues этого репозитория (`abai45/ai-for-developers-project-387`), всё через `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 

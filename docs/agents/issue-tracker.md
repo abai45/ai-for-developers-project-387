@@ -2,7 +2,9 @@
 
 Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
 
-Repository: `github.com/abai45/ai-for-developers-project-386`.
+Repository: `github.com/abai45/ai-for-developers-project-387`.
+
+Ссылки на историю первого проекта («Календарь звонков») ведут в `github.com/abai45/ai-for-developers-project-386`: спецификация и тикеты там закрыты, этот репозиторий — продолжение процесса, новые задачи заводим только здесь.
 
 ## Conventions
 

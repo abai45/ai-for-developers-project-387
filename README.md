@@ -1,7 +1,7 @@
-# Календарь звонков
+# Календарь звонков (продолжение)
 
 
-[![hexlet-check](https://github.com/abai45/ai-for-developers-project-386/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/abai45/ai-for-developers-project-386/actions)
+[![hexlet-check](https://github.com/abai45/ai-for-developers-project-387/actions/workflows/hexlet-check.yml/badge.svg)](https://github.com/abai45/ai-for-developers-project-387/actions)
 
 Разработайте совместно с ИИ сервис для бронирования календаря
 
@@ -13,6 +13,20 @@
 **https://calendar-zvonkov.onrender.com** — живой сервис (Render, бесплатный план: спит без запросов, первый отклик несколько секунд).
 
 Там же можно проверить сквозной сценарий: владелец заводит тип, гость записывается, пересекающаяся запись отклоняется с понятным сообщением.
+
+Если ссылка не открывается: сервис на бесплатном плане спит без запросов, первый отклик занимает до ~30 секунд — обновите страницу. Запасной вариант — локальный запуск (см. [Установка](#установка)) или Docker (см. [Docker](#docker)).
+
+## Исходный проект
+
+Этот репозиторий — автоматизация процесса разработки вокруг приложения из первого проекта «Календарь звонков». История решений сохранена в исходном репозитории:
+
+- Репозиторий первого проекта: https://github.com/abai45/ai-for-developers-project-386
+- Согласованная спецификация: [issue #1 «Карта: согласованная спецификация»](https://github.com/abai45/ai-for-developers-project-386/issues/1) и [issue #6 «Спецификация: Календарь звонков»](https://github.com/abai45/ai-for-developers-project-386/issues/6)
+- Тикеты и pull request первого проекта: https://github.com/abai45/ai-for-developers-project-386/issues?q=
+- Решения: [docs/decisions.md](docs/decisions.md) и [docs/adr/](docs/adr/) (копия перенесена сюда; исходники — в [386/docs/decisions.md](https://github.com/abai45/ai-for-developers-project-386/blob/main/docs/decisions.md) и [386/docs/adr/](https://github.com/abai45/ai-for-developers-project-386/tree/main/docs/adr))
+- Словарь проекта: [GLOSSARY.md](GLOSSARY.md)
+
+В этом репозитории живёт трекер новых задач ([GitHub Issues](https://github.com/abai45/ai-for-developers-project-387/issues)), воркфлоу и агенты; адрес трекера обновлён в [AGENTS.md](AGENTS.md) и [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
 
 ## Как это работает
 
@@ -94,11 +108,35 @@ docker run --rm -p 9123:9123 -e PORT=9123 calendar
 <!-- Опишите установку: клонирование, зависимости, переменные окружения -->
 
 ```bash
-git clone https://github.com/abai45/ai-for-developers-project-386.git
-cd ai-for-developers-project-386
+git clone https://github.com/abai45/ai-for-developers-project-387.git
+cd ai-for-developers-project-387
 ```
 
 ## Использование
+
+Зависимости и проверки — через [mise](https://mise.jdx.dev/) (Java 21 и Node 22 подтягиваются автоматически):
+
+```bash
+mise run setup     # зависимости бекенда, фронтенда, TypeSpec и Playwright
+mise run check     # все проверки: контракт, тесты, линт, типы, сборка, E2E (то же в CI)
+```
+
+Запуск приложения:
+
+```bash
+mise run backend    # http://localhost:8080 — API и SPA
+mise run frontend   # http://localhost:5173 — dev-сервер с прокси на /api
+```
+
+Либо одним контейнером (см. [Docker](#docker)):
+
+```bash
+docker build -t calendar .
+docker run --rm -p 9123:9123 -e PORT=9123 calendar
+# → http://localhost:9123
+```
+
+Живой сервис: https://calendar-zvonkov.onrender.com
 
 <!-- Добавьте примеры запуска и запись asciinema — именно это смотрит работодатель -->
 
