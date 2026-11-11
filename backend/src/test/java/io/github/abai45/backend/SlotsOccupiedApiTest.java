@@ -20,6 +20,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 
 /**
  * API-тест занятости слотов (шов HTTP): слот, пересекающийся с существующей
@@ -28,6 +29,10 @@ import org.springframework.http.ResponseEntity;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureTestRestTemplate
+// Встречи этого класса не должны протекать в контекст других тестовых классов
+// (MeetingsApiTest бронирует тот же слот «завтра 10:00» и ждёт 201, а
+// SlotsApiTest проверяет, что без записей все слоты свободны).
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class SlotsOccupiedApiTest {
 
     @Autowired
