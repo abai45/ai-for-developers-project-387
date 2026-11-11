@@ -1,0 +1,95 @@
+name: opencode
+
+# Интерактивный вызов агента из комментариев.
+# Событие ещё не означает вызова модели: фильтр `if` отсекает комментарии
+# без команды, от ботов и от недоверенных авторов ДО работы агента.
+on:
+  issue_comment:
+    types: [created] # только создание: правка комментария не перезапускает
+  pull_request_review_comment:
+    types: [created]
+
+# Один прогон на issue/PR: новый вызов отменяет текущий (cancel-in-progress)
+concurrency:
+  group: opencode-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  opencode:
+    # Команда в тексте + доверенный автор + комментарии ботов игнорируются.
+    # Набор команд — по умолчанию: /opencode и /oc (параметр mentions не задан).
+    if: |
+      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')) &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Стандартный режим OpenCode: чтение репозитория + OIDC-обмен на токен
+    # GitHub App (им правами агент комментирует и пушит).
+    # pull-requests: read — проверка head-репозитория PR (не fork ли он);
+    # issues: read — чтение GitHub Issues через gh из сессии агента.
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: read
+      issues: read
+    steps:
+      # Секрет модели не должен попасть в прогон по недоверенному fork:
+      # PR из чужого репозитория не запускаем вовсе.
+      - name: "Проверка: PR не из fork"
+        id: guard
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let fork = false;
+            const prNumber = context.payload.issue?.pull_request
+              ? context.payload.issue.number
+              : context.payload.pull_request?.number;
+            if (prNumber && context.payload.issue?.pull_request) {
+              const pr = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              fork = pr.data.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            } else if (prNumber) {
+              const pr = context.payload.pull_request;
+              fork = pr.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+            }
+            core.setOutput('safe', fork ? 'false' : 'true');
+            if (fork) core.info('PR из fork — прогон остановлен, секрет не используется');
+
+      - name: Checkout repository
+        if: steps.guard.outputs.safe == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # Стандартный режим: git-доступ даёт токен GitHub App, а не checkout
+          persist-credentials: false
+
+      # Раннер начинает с чистого окружения: глобальные скиллы первой проектной
+      # сессии (to-spec, to-tickets) ставим отдельно. Проектные (implement-spec
+      # и др.) лежат в .agents/skills/ и едут с репозиторием.
+      - name: Установка Node для skills CLI
+        if: steps.guard.outputs.safe == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Установка скиллов to-spec и to-tickets
+        if: steps.guard.outputs.safe == 'true'
+        run: npx -y skills add mattpocock/skills --skill to-spec --skill to-tickets -a opencode -g -y
+
+      - name: Run OpenCode
+        if: steps.guard.outputs.safe == 'true'
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Ключ провайдера — только из Secrets, в git не хранится
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Чтение issue из сессии агента (gh CLI)
+          GH_TOKEN: ${{ github.token }}
+        with:
+          # Провайдер OpenCode (Console «Hexlet Students»), модель без списаний
+          model: opencode/mimo-v2.6-flash-free
+          # Решение для открытого репозитория: сессии агента не публикуются
+          share: "false"

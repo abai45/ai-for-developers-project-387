@@ -41,3 +41,7 @@ Issues живут в GitHub Issues этого репозитория (`abai45/ai
 ### Domain docs
 
 Single-context: `GLOSSARY.md` в корне, решения — в `docs/adr/`. See `docs/agents/domain.md`.
+
+### Вызов из GitHub
+
+В GitHub агента зовут комментарием в issue или PR: `/oc ...` или `/opencode ...` (воркфлоу [.github/workflows/opencode.yml](.github/workflows/opencode.yml), модель и настройки — в README, раздел «Агент в GitHub»). Сессия читает обсуждение issue и отвечает комментарием; вопросы и решения остаются в обсуждении — следующая сессия может прочитать их перед работой.
