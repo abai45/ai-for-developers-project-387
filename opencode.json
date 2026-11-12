@@ -1,12 +1,8 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "permissions": [
-    {
-      "action": "external_directory",
-      "resource": "/home/runner/work/_temp/_github_workflow/*",
-      "effect": "allow"
-    }
-  ],
+  "permission": {
+    "external_directory": "allow"
+  },
   "mcp": {
     "shadcn": {
       "type": "local",
