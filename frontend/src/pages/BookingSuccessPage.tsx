@@ -35,6 +35,7 @@ export default function BookingSuccessPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-1 text-sm">
           <p>Гость: {meeting.guestName}</p>
+          {meeting.topic ? <p>Тема: {meeting.topic}</p> : null}
           <p className="text-muted-foreground">
             {formatOwnerDateTimeRange(meeting.start, meeting.end)}
           </p>

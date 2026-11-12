@@ -112,3 +112,63 @@ test('конфликт 409: занятый соперником слот воз�
   // «Продолжить» не активна без нового выбора.
   await expect(page.getByRole('button', { name: 'Продолжить' })).toBeDisabled()
 })
+
+test('тема разговора: поле на шаге «Имя», тема на «Вы записаны» и строкой в карточке владельца; без темы строки нет', async ({
+  page,
+}) => {
+  const typeName = `E2E тема ${Date.now()}`
+  const guestWithTopic = `Гость с темой ${Date.now()}`
+  const guestWithoutTopic = `Гость без темы ${Date.now()}`
+  const topic = `Обсудить roadmap ${Date.now()}`
+  await createTypeViaOwnerUi(page, typeName)
+
+  // Основной сценарий: ввод темы → подтверждение → экран «Вы записаны» → карточка владельца.
+  await page.goto('/book')
+  await page.getByRole('button').filter({ hasText: typeName }).click()
+  await pickFirstDay(page)
+  await pickFirstFreeSlot(page)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+
+  await expect(page.getByLabel('Тема разговора')).toBeVisible()
+  await page.getByLabel('Ваше имя').fill(guestWithTopic)
+  await page.getByLabel('Тема разговора').fill(topic)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+
+  // Тема не показывается на шаге «Подтверждение» (вне согласованного объёма).
+  await expect(page.getByText(`Тема: ${topic}`)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Подтвердить запись' }).click()
+
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Вы записаны' }),
+  ).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithTopic}`)).toBeVisible()
+  await expect(page.getByText(`Тема: ${topic}`)).toBeVisible()
+
+  // Соседний сценарий: запись без темы — на «Вы записаны» строки темы нет.
+  await page.goto('/book')
+  await page.getByRole('button').filter({ hasText: typeName }).click()
+  await pickFirstDay(page)
+  await pickFirstFreeSlot(page)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.getByLabel('Ваше имя').fill(guestWithoutTopic)
+  await expect(page.getByLabel('Тема разговора')).toHaveValue('')
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.getByRole('button', { name: 'Подтвердить запись' }).click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Вы записаны' }),
+  ).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithoutTopic}`)).toBeVisible()
+  await expect(page.getByText('Тема: ')).toHaveCount(0)
+
+  // Владелец: строка темы под именем гостя только при заполненной теме.
+  await page.goto('/owner')
+  await expect(page.getByRole('heading', { level: 2, name: 'Предстоящие встречи' })).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithTopic}`)).toBeVisible()
+  await expect(page.getByText(`Тема: ${topic}`)).toBeVisible()
+  const withoutTopicCard = page
+    .locator('li')
+    .filter({ hasText: guestWithoutTopic })
+    .first()
+  await expect(withoutTopicCard).toBeVisible()
+  await expect(withoutTopicCard.getByText('Тема: ')).toHaveCount(0)
+})

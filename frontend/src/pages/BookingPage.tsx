@@ -16,6 +16,7 @@ export default function BookingPage() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [guestName, setGuestName] = useState('')
+  const [topic, setTopic] = useState('')
   const [pending, setPending] = useState(false)
   const [conflictMessage, setConflictMessage] = useState<string | null>(null)
 
@@ -36,10 +37,13 @@ export default function BookingPage() {
     if (!eventType || !selectedSlot || pending) return
     setPending(true)
     try {
+      const trimmedTopic = topic.trim()
       const result = await createMeeting({
         eventTypeId: eventType.id,
         guestName,
         start: selectedSlot.start,
+        // Тема опциональна: в тело запроса попадает только при непустом значении.
+        ...(trimmedTopic ? { topic } : {}),
       })
       if (result.kind === 'created') {
         navigate('/book/success', {
@@ -104,7 +108,9 @@ export default function BookingPage() {
           selectedDay={selectedDay}
           selectedSlot={selectedSlot}
           guestName={guestName}
+          topic={topic}
           onNameChange={setGuestName}
+          onTopicChange={setTopic}
           onBack={() => setStep(2)}
           onNext={() => setStep(4)}
         />
