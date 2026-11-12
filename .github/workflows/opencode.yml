@@ -28,12 +28,13 @@ jobs:
     # Стандартный режим OpenCode: чтение репозитория + OIDC-обмен на токен
     # GitHub App (им правами агент комментирует и пушит).
     # pull-requests: read — проверка head-репозитория PR (не fork ли он);
-    # issues: read — чтение GitHub Issues через gh из сессии агента.
+    # issues: write — триаж: gh читает обращения и вешает метки
+    # (needs-triage/enhancement/spec/ticket).
     permissions:
       contents: read
       id-token: write
       pull-requests: read
-      issues: read
+      issues: write
     steps:
       # Секрет модели не должен попасть в прогон по недоверенному fork:
       # PR из чужого репозитория не запускаем вовсе.
