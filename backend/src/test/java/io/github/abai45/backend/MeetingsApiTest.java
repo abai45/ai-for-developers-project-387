@@ -77,8 +77,8 @@ class MeetingsApiTest {
 
         Meeting request = meeting(type.getId(), "Анна", slot.getStart());
         request.setTopic("Обсудить план релиза");
-        ResponseEntity<MeetingView> response = restTemplate.exchange(
-                "/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+        ResponseEntity<MeetingView> response =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         MeetingView body = response.getBody();
@@ -93,8 +93,8 @@ class MeetingsApiTest {
 
         Meeting request = meeting(type.getId(), "Без темы", slot.getStart());
         request.setTopic("   ");
-        ResponseEntity<MeetingView> created = restTemplate.exchange(
-                "/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+        ResponseEntity<MeetingView> created =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
 
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(created.getBody()).isNotNull();
@@ -128,8 +128,8 @@ class MeetingsApiTest {
 
         Meeting request = meeting(type.getId(), "Темный лорд", slot.getStart());
         request.setTopic("Стратегия квартала");
-        ResponseEntity<MeetingView> created = restTemplate.exchange(
-                "/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+        ResponseEntity<MeetingView> created =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         List<MeetingView> meetings = listMeetings();
