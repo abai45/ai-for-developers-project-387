@@ -1,0 +1,97 @@
+name: opencode-review
+
+# Авторевью на событии pull_request. Это ОТДЕЛЬНЫЙ агент от реализации:
+# он не продолжает сессию реализма, не правит код и не пушит —
+# только читает и оставляет замечания комментарием в PR.
+on:
+  pull_request:
+    # opened + ready_for_review: ревью на каждом synchronize кончало бы
+    # бюджет Actions раньше, чем исправления по замечаниям.
+    types: [opened, ready_for_review]
+
+jobs:
+  review:
+    # Ветка своего репозитория: PR из fork не получают ключ модели.
+    # Автор доверенный ИЛИ это PR агента: фильтр всех Bot отключил бы
+    # этот сценарий, а PR агента — главный кандидат на авторевью.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      (github.event.pull_request.user.login == 'opencode-agent[bot]' ||
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Только чтение кода/выпуска/CI + запись комментария PR. Правил push
+    # нет: токен раннера не даёт писать в git, агент физически не может
+    # изменить ветку. Обмен по OIDC этому сценарию не нужен.
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      checks: read
+      statuses: read
+      pull-requests: write
+    # Старое ревью того же PR отменяется новым.
+    concurrency:
+      group: review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # Эталонная проверка рабочей версии: checkout НЕ merge-коммита,
+      # а точного head SHA автора; факт фиксируется в артефакт и в комментарий.
+      - name: Checkout head SHA автора
+        id: head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Зафиксировать проверенный SHA
+        id: sha
+        run: |
+          echo "reviewed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Установка opencode CLI
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Ревью агентом (read-only)
+        id: review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          export PATH="$HOME/.opencode/bin:$PATH"
+          opencode run --model opencode/mimo-v2.6-flash-free "
+          Ты независимый ревьюер PR #${PR_NUMBER}. Код и историю не меняй:
+          git push, коммиты и правки файлов запрещены, вопросов не задавай.
+          Прочитай: REVIEW.md (критерии календаря), GLOSSARY.md, AGENTS.md.
+          Через gh (он авторизован read-only): gh pr view/diff ${PR_NUMBER},
+          исходное обращение и спеку из ссылок в описании PR, gh pr checks
+          и gh run view с логами CI.
+          Проверь diff и поведение по критериям REVIEW.md: инварианты слотов,
+          контрактная цепочка (сгенерированные файлы руками не правятся),
+          основной/негативный/соседний сценарии спеки, покрытие тестами
+          (основной и негативный), совпадение описания PR с шаблоном и
+          фактическими прогонами CI. Глубина проверки — по последствиям
+          ошибки, число строк само по себе не риск.
+          Финальным сообщением выведи ОДНО markdown-ревью без лишнего текста:
+          список замечаний (каждое: файл, строка, условие ошибки, последствие);
+          если подтверждённых дефектов нет — прямо это напиши. Форматирование
+          (линтер) не комментируй." > review.md
+          test -s review.md
+
+      - name: Публикация ревью
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEWED_SHA: ${{ steps.sha.outputs.reviewed_sha }}
+        run: |
+          {
+            echo "> Автоторевью независимым агентом (opencode). Правки по замечаниям — только командой человека /oc."
+            echo "> Проверенный head SHA: \`${REVIEWED_SHA}\` · Прогон: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            cat review.md
+          } > body.md
+          gh pr comment "$PR_NUMBER" --body-file body.md

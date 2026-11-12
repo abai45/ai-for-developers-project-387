@@ -1,0 +1,60 @@
+name: verify-head
+
+# Проверка РАБОЧЕЙ версии из отдельного окружения CI: не merge-коммита,
+# а точного head SHA автора. Событие pull_request без ref checkout обычно
+# берёт временный merge-коммит — здесь ref задан явно, а фактический
+# коммит фиксируется в артефакт. Секрет модели не нужен: это не агент,
+# а воспроизводимый e2e-прогон, который человек смотрит перед мержем.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  e2e-head:
+    # Только ветки своего репозитория; merge-коммиты и форки не проверяются.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # Новый push отменяет проверку устаревшей версии того же PR.
+    concurrency:
+      group: verify-head-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout точного head SHA автора
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+
+      - name: Проверенный SHA и версия
+        id: sha
+        run: |
+          echo "reviewed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+
+      - name: Зависимости проекта (включая браузер Playwright)
+        run: mise run setup
+
+      # Основной и соседний сценарии согласованной спеки идут полным
+      # набором e2e; trace включаем явно — по умолчанию retain-on-failure
+      # не сохраняет след успешного прогона.
+      - name: E2E с записью trace
+        working-directory: e2e
+        run: npx playwright test --trace on
+
+      - name: Артефакт проверки (trace + SHA + результат)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-head-${{ steps.sha.outputs.reviewed_sha }}
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          if-no-files-found: warn
+          retention-days: 14

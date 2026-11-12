@@ -2,7 +2,9 @@ name: opencode
 
 # Интерактивный вызов агента из комментариев.
 # Событие ещё не означает вызова модели: фильтр `if` отсекает комментарии
-# без команды, от ботов и от недоверенных авторов ДО работы агента.
+# без команды, от ботов и от недоверенных авторов ДО работы агента; шаг
+# «Предел запусков» останавливает прогон до вызова модели, когда бюджет
+# треда исчерпан.
 on:
   issue_comment:
     types: [created] # только создание: правка комментария не перезапускает
@@ -30,13 +32,15 @@ jobs:
     # Стандартный режим OpenCode: чтение репозитория + OIDC-обмен на токен
     # GitHub App (им правами агент комментирует и пушит).
     # pull-requests: read — проверка head-репозитория PR (не fork ли он);
-    # issues: write — триаж: gh читает обращения и вешает метки
-    # (needs-triage/enhancement/spec/ticket).
+    # issues: write — триаж и отчёты: gh из сессии вешает метки, шаги gate
+    # публикуют итоги без модели;
+    # actions: read — бюджет-гейт считает попытки по истории Actions.
     permissions:
       contents: read
       id-token: write
       pull-requests: read
       issues: write
+      actions: read
     steps:
       # Секрет модели не должен попасть в прогон по недоверенному fork:
       # PR из чужого репозитория не запускаем вовсе.
@@ -63,8 +67,62 @@ jobs:
             core.setOutput('safe', fork ? 'false' : 'true');
             if (fork) core.info('PR из fork — прогон остановлен, секрет не используется');
 
-      - name: Checkout repository
+      # Предел запусков на тред (issue/PR): считаем допущенные запросы человека
+      # к модели — каждый непропущенный прогон этого воркфлоу по тому же треду,
+      # включая попытки Re-run (run_attempt), отмены и таймауты. Источник
+      # счёта — история Actions, токен агента её не перезаписывает. Превышение:
+      # модель не вызывается, итог публикует шаг без модели.
+      - name: "Предел запусков: бюджет треда"
+        id: budget
         if: steps.guard.outputs.safe == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const limit = 3;
+            const threadTitle = context.payload.issue?.title ?? context.payload.pull_request?.title ?? '';
+            const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'opencode.yml',
+              per_page: 100,
+            });
+            const modelRuns = data.workflow_runs.filter(
+              (r) =>
+                r.display_title === threadTitle &&
+                (r.event === 'issue_comment' || r.event === 'pull_request_review_comment') &&
+                r.conclusion !== 'skipped',
+            );
+            const spent = modelRuns.reduce((s, r) => s + (r.run_attempt || 1), 0);
+            core.info(`Запуски с моделью в этом треде (включая текущий): ${spent}, бюджет: ${limit}`);
+            core.setOutput('spent', String(spent));
+            core.setOutput('allowed', spent <= limit ? 'true' : 'false');
+            core.setOutput('limit', String(limit));
+
+      - name: "Отказ: бюджет исчерпан (без модели)"
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const num = context.payload.issue?.number ?? context.payload.pull_request?.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: num,
+              body: [
+                '**limit_exhausted** — вызов модели не выполнен, бюджет треда исчерпан.',
+                `Попыток (с Re-run, отменами и таймаутами): ${process.env.SPENT}, лимит: ${process.env.LIMIT} на этот PR/issue.`,
+                `Head на момент отказа: \`${process.env.SHA}\`.`,
+                `Логи: ${process.env.RUN_URL} — дальше действует человек: изменить объём, открыть новый PR (бюджет нового треда не связан с этим) или доделать вручную.`,
+              ].join('\n'),
+            });
+        env:
+          SPENT: ${{ steps.budget.outputs.spent }}
+          LIMIT: ${{ steps.budget.outputs.limit }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Checkout repository
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
@@ -75,7 +133,7 @@ jobs:
       # для контрактной цепочки `mise run spec` и точечных проверок. Полный
       # `mise run check` остаётся арбитражем CI на ветке PR.
       - name: Установка mise (инструменты проекта)
-        if: steps.guard.outputs.safe == 'true'
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'true'
         uses: jdx/mise-action@v2
         with:
           install: true
@@ -84,17 +142,18 @@ jobs:
       # сессии (triage, to-spec, to-tickets) ставим отдельно. Проектные (implement-spec
       # и др.) лежат в .agents/skills/ и едут с репозиторием.
       - name: Установка Node для skills CLI
-        if: steps.guard.outputs.safe == 'true'
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Установка скиллов triage, to-spec и to-tickets
-        if: steps.guard.outputs.safe == 'true'
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'true'
         run: npx -y skills add mattpocock/skills --skill triage --skill to-spec --skill to-tickets -a opencode -g -y
 
       - name: Run OpenCode
-        if: steps.guard.outputs.safe == 'true'
+        id: run_opencode
+        if: steps.guard.outputs.safe == 'true' && steps.budget.outputs.allowed == 'true'
         uses: anomalyco/opencode/github@latest
         env:
           # Ключ провайдера — только из Secrets, в git не хранится
@@ -106,3 +165,62 @@ jobs:
           model: opencode/mimo-v2.6-flash-free
           # Решение для открытого репозитория: сессии агента не публикуются
           share: "false"
+
+      # Итоги без модели: человек видит причину по комментарию,
+      # а не по косвенным признакам. Новый PR получает новый бюджет.
+      - name: "Итог: infra (сбой подготовки, без модели)"
+        if: failure() && steps.budget.outputs.allowed == 'true' && steps.run_opencode.outcome != 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const num = context.payload.issue?.number ?? context.payload.pull_request?.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: num,
+              body: [
+                '**infra** — прогон упал на подготовке окружения до/вне агента (checkout, mise, скиллы).',
+                `Head: \`${process.env.SHA}\`. Логи: ${process.env.RUN_URL}`,
+              ].join('\n'),
+            });
+        env:
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: "Итог: agent_failed (агент вернул ошибку)"
+        if: failure() && steps.run_opencode.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const num = context.payload.issue?.number ?? context.payload.pull_request?.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: num,
+              body: [
+                '**agent_failed** — сессия агента завершилась ошибкой (не таймаут, не подготовка).',
+                `Head: \`${process.env.SHA}\`. Логи: ${process.env.RUN_URL}. Неясную причину смотреть в логах прогона; следующий шаг выбирает человек.`,
+              ].join('\n'),
+            });
+        env:
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: "Итог: timeout (прогон снят по limit)"
+        if: cancelled() && steps.budget.outputs.allowed == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const num = context.payload.issue?.number ?? context.payload.pull_request?.number;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: num,
+              body: [
+                '**timeout** — прогон отменён (таймаут задания или отмена новым вызовом того же треда).',
+                `Head: \`${process.env.SHA}\`. Логи: ${process.env.RUN_URL}`,
+              ].join('\n'),
+            });
+        env:
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
