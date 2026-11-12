@@ -1,0 +1,140 @@
+name: opencode-review
+
+# Авторевью на событии pull_request. Это ОТДЕЛЬНЫЙ агент от реализации:
+# он не продолжает сессию реализма, не правит код и не пушит —
+# только читает и оставляет замечания комментарием в PR.
+# Замечания ревью сам исправление не запускает: правки — только по команде
+# человека /oc (воркфлоу opencode.yml).
+on:
+  pull_request:
+    # opened + ready_for_review: ревью на каждом synchronize кончало бы
+    # бюджет Actions раньше, чем исправления по замечаниям.
+    types: [opened, ready_for_review]
+
+jobs:
+  review:
+    # Ветка своего репозитория: PR из fork не получают ключ модели.
+    # Автор доверенный ИЛИ это PR агента: фильтр всех Bot отключил бы
+    # этот сценарий, а PR агента — главный кандидат на авторевью.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      (github.event.pull_request.user.login == 'opencode-agent[bot]' ||
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Ревью-агент только читает: pull-requests: write ему НЕ выдаётся —
+    # публикация изолирована во второй задаче без секрета модели.
+    # Обмен по OIDC этому сценарию не нужен.
+    permissions:
+      contents: read
+      issues: read
+      actions: read
+      checks: read
+      statuses: read
+      pull-requests: read
+    # Старое ревью того же PR отменяется новым.
+    concurrency:
+      group: review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    outputs:
+      sha: ${{ steps.sha.outputs.reviewed_sha }}
+    steps:
+      # Эталонная проверка рабочей версии: checkout НЕ merge-коммита,
+      # а точного head SHA автора; факт фиксируется в артефакт и в комментарий.
+      - name: Checkout head SHA автора
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Зафиксировать проверенный SHA
+        id: sha
+        run: |
+          echo "reviewed_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          git rev-parse HEAD | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Независимость критериев: REVIEW.md берётся из базы PR (base SHA),
+      # иначе PR мог бы ослабить собственный свод правил и получить
+      # «дефектов нет» по собственному уставу.
+      - name: Критерии ревью из базы PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/contents/REVIEW.md?ref=${{ github.event.pull_request.base.sha }}" \
+            --jq .content | base64 -d > REVIEW.md
+
+      - name: Установка opencode CLI
+        run: curl -fsSL https://opencode.ai/install | bash
+
+      - name: Ревью агентом (read-only)
+        id: review
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          export PATH="$HOME/.opencode/bin:$PATH"
+          opencode run --model opencode/mimo-v2.6-flash-free "
+          Ты независимый ревьюер PR #${PR_NUMBER} в этом репозитории. Код, файлы и git-историю не меняй: push, коммиты и правки запрещены. Токен gh в этом шаге read-only — записать замечания в PR ты не можешь, их опубликует отдельный шаг. Работай строго в таком порядке и НИЧЕГО сверх него:
+          1) Прочитай REVIEW.md (он перезаписан версией из базы PR — это твой единственный набор критериев) и GLOSSARY.md.
+          2) gh pr view ${PR_NUMBER} и gh pr diff ${PR_NUMBER} — тело PR и изменения.
+          3) gh pr checks ${PR_NUMBER} — статус проверок. Если CI ещё не готов, так и запиши в ревью; НЕ исследуй чужие прогоны, другие PR, треды или Actions-историю.
+          Проверь diff по REVIEW.md: инварианты слотов, контрактная цепочка (сгенерированные файлы руками не правятся), основной/негативный/соседний сценарии из спеки по ссылке в описании PR, покрытие тестами, заполнен ли шаблон PR честно (проверки, риск, откат).
+          Бюджет работы: не более 15 команд gh/git всего. Глубина проверки — по последствиям ошибки, число строк не риск.
+          Финальным сообщением выведи ОДНО markdown-ревью: список замечаний (каждое: файл, строка, условие ошибки, последствие); если подтверждённых дефектов нет — прямо это напиши. Форматирование (линтер) не комментируй. Больше ничего после ревью не печатай." > review.md
+          test -s review.md
+
+      # Текст ревью передаётся задаче публикации артефактом: модель не имеет
+      # write-доступа ни к PR, ни к секрету публикации.
+      - name: Артефакт ревью
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-body
+          path: review.md
+
+  publish:
+    needs: review
+    if: always() && needs.review.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download review body
+        if: needs.review.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: review-body
+
+      - name: Опубликовать ревью комментарием
+        if: needs.review.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEWED_SHA: ${{ needs.review.outputs.sha }}
+        run: |
+          {
+            echo "> Автоторевью независимым агентом (opencode). Правки по замечаниям — только командой человека /oc."
+            echo "> Проверенный head SHA: \`${REVIEWED_SHA}\` · Прогон ревью: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            cat review.md
+          } > body.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file body.md
+
+      # Сбой ревью не должен выглядеть как «ревьюер молчит»: публикация
+      # чинится здесь, ревью-джоба — нет. Причина и лог — в комментарии.
+      - name: Опубликовать статус сбоя ревью
+        if: needs.review.result != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          cat > body.md <<EOF
+          > Автоторевью не состоялось: ревью-задача завершилась со статусом \`${{ needs.review.result }}\`.
+          > Причина — в логах прогона: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          > Это \`review_failed\`, а не «дефектов нет». Ревью можно повторить: convert-to-draft → ready.
+          EOF
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file body.md
