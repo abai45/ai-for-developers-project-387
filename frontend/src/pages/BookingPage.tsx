@@ -42,8 +42,9 @@ export default function BookingPage() {
         eventTypeId: eventType.id,
         guestName,
         start: selectedSlot.start,
-        // Тема опциональна: в тело запроса попадает только при непустом значении.
-        ...(trimmedTopic ? { topic } : {}),
+        // Тема опциональна: в тело уходит обрезанная и только при непустом значении
+        // (сервер нормализует только полностью пробельные значения).
+        ...(trimmedTopic ? { topic: trimmedTopic } : {}),
       })
       if (result.kind === 'created') {
         navigate('/book/success', {
