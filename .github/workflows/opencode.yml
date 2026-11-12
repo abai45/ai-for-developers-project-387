@@ -18,7 +18,9 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30 минут: implement-spec на раннере (TypeSpec-генерация, тесты, линтер)
+    # не укладывается в 15.
+    timeout-minutes: 30
     # Один активный прогон на issue/PR: новый вызов отменяет текущий
     # (cancel-in-progress). На уровне задания, а не воркфлоу: пропущенный по
     # фильтру запуск (например, собственный ответ агента) не отменяет работающий.
@@ -68,6 +70,15 @@ jobs:
           fetch-depth: 1
           # Стандартный режим: git-доступ даёт токен GitHub App, а не checkout
           persist-credentials: false
+
+      # Окружение проекта на раннере: агенту нужны mise (java temurin-21, node 22)
+      # для контрактной цепочки `mise run spec` и точечных проверок. Полный
+      # `mise run check` остаётся арбитражем CI на ветке PR.
+      - name: Установка mise (инструменты проекта)
+        if: steps.guard.outputs.safe == 'true'
+        uses: jdx/mise-action@v2
+        with:
+          install: true
 
       # Раннер начинает с чистого окружения: глобальные скиллы первой проектной
       # сессии (triage, to-spec, to-tickets) ставим отдельно. Проектные (implement-spec
