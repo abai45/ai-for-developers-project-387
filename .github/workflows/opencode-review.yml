@@ -122,4 +122,4 @@ jobs:
             echo
             cat review.md
           } > body.md
-          gh pr comment "$PR_NUMBER" --body-file body.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file body.md
