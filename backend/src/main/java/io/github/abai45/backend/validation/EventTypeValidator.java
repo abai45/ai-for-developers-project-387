@@ -58,4 +58,24 @@ public final class EventTypeValidator {
         }
         return errors;
     }
+
+    /**
+     * Тема разговора опциональна: отсутствие и пустая строка — не ошибка;
+     * при присутствии длина не больше 100 символов (встреча, тикет #14).
+     */
+    public static List<FieldError> validateTopic(String topic) {
+        List<FieldError> errors = new ArrayList<>();
+        if (topic != null && topic.length() > 100) {
+            errors.add(FieldErrors.of("topic", "Тема не длиннее 100 символов."));
+        }
+        return errors;
+    }
+
+    /** Пустая или пробельная тема нормализуется к отсутствию (null). */
+    public static String normalizeTopic(String topic) {
+        if (topic == null || topic.isBlank()) {
+            return null;
+        }
+        return topic;
+    }
 }

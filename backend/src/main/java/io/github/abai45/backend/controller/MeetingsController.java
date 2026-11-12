@@ -48,6 +48,7 @@ public class MeetingsController implements MeetingsApi {
             errors.add(FieldErrors.of("start", "Выберите время встречи."));
         }
         errors.addAll(EventTypeValidator.validateGuestName(meeting.getGuestName()));
+        errors.addAll(EventTypeValidator.validateTopic(meeting.getTopic()));
         if (!errors.isEmpty()) {
             throw new ValidationException(errors);
         }
@@ -68,6 +69,7 @@ public class MeetingsController implements MeetingsApi {
         MeetingView view = new MeetingView();
         view.setEventTypeId(eventType.getId());
         view.setGuestName(meeting.getGuestName());
+        view.setTopic(EventTypeValidator.normalizeTopic(meeting.getTopic()));
         view.setStart(start);
         view.setEnd(start.plusMinutes(eventType.getDurationMinutes()));
 
