@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0](https://github.com/abai45/ai-for-developers-project-387/compare/v1.0.0...v1.1.0) (2026-11-12)
+
+
+### Features
+
+* ввод темы, экран «Вы записаны» и карточка владельца ([#15](https://github.com/abai45/ai-for-developers-project-387/issues/15)) ([de03d34](https://github.com/abai45/ai-for-developers-project-387/commit/de03d344688f7d4de58b2846b070becc1c189c9f))
+* тема разговора в контракте и бэкенде ([#14](https://github.com/abai45/ai-for-developers-project-387/issues/14)) ([4b91ada](https://github.com/abai45/ai-for-developers-project-387/commit/4b91adaa62c6de2ae197b48a6139668da788a7e1))
+
+
+### Bug Fixes
+
+* publish-job передаёт --repo gh (нет checkout в этой задаче) ([e59c0c2](https://github.com/abai45/ai-for-developers-project-387/commit/e59c0c244db30745686d52f10140101bac517a57))
+* V1-синтаксис permission — раннер ставит opencode v1.19.5 ([58ea594](https://github.com/abai45/ai-for-developers-project-387/commit/58ea594f88455b0d43d29b0e908d29538996a847))
+* права issues:write и allow event-каталога — триаж не зависает ([1be54cd](https://github.com/abai45/ai-for-developers-project-387/commit/1be54cda1e7b12e81a7814f185a7510f90fc6c21))
+* правки второго раунда авторевью — доверенные авторы в счёте, история по created_at, статус сбоя ревью ([e810e36](https://github.com/abai45/ai-for-developers-project-387/commit/e810e364d90b55f89a06afce68511d5e6b741e07))
+* синтаксис permission V1 для external_directory — раннер ставит opencode v1.19 ([4fcbcea](https://github.com/abai45/ai-for-developers-project-387/commit/4fcbcea2351fa1d439c10cf432fa07bdd9e3b99b))
+* тело запроса бронирования несёт обрезанную тему ([#5](https://github.com/abai45/ai-for-developers-project-387/issues/5)) ([cefcb75](https://github.com/abai45/ai-for-developers-project-387/commit/cefcb757371805229cfcc21d7c9b240ddb62e3b7))
+* триаж не зависает — права issues:write + allow event-каталога ([cf16646](https://github.com/abai45/ai-for-developers-project-387/commit/cf166469e7adfc21facde072dafb65eeef195a70))
+* формат spotless MeetingsApiTest ([#14](https://github.com/abai45/ai-for-developers-project-387/issues/14)) ([0019dea](https://github.com/abai45/ai-for-developers-project-387/commit/0019dea582dae22daac298826f40c27b3352de4a))
+
 ## 1.0.0 (2026-11-11)
 
 
