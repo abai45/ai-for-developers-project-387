@@ -1,0 +1,84 @@
+name: opencode-triage
+
+# Автотриаж входящих обращений: событие issues само по себе ещё не вызывает
+# модель — фильтр `if` ниже отсекает неподходящие прогоны ДО работы агента.
+# Инструкция лежит в prompt: у события issues нет комментария-источника.
+on:
+  issues:
+    types: [opened] # только создание: правки и переметки не перезапускают
+
+jobs:
+  triage:
+    # 1) Доверенный автор обращения — чужие issue не получают секреты.
+    # 2) Не бот — агент не разбирает собственные спеки/тикеты.
+    # 3) Нет меток подготовленных скиллами (spec/ticket/ready-for-agent) —
+    #    тикеты, выпущенные to-spec/to-tickets, повторного триажа не требуют
+    #    (словарь меток: docs/agents/issue-tracker.md).
+    if: |
+      github.event.sender.type != 'Bot' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
+      !(contains(github.event.issue.labels.*.name, 'spec') ||
+        contains(github.event.issue.labels.*.name, 'ticket') ||
+        contains(github.event.issue.labels.*.name, 'ready-for-agent'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Тот же стандартный режим, что и в opencode.yml: OIDC-обмен на токен App,
+    # чтение кода, issues: write — gh из сессии ставит метки needs-* и
+    # публикует разбор комментарием.
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    # Один активный прогон на issue; уровень задания — пропущенный фильтром
+    # запуск не отменяет завершённый.
+    concurrency:
+      group: triage-${{ github.event.issue.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # git-доступ даёт токен GitHub App, а не checkout
+          persist-credentials: false
+
+      - name: Установка Node для skills CLI
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Установка скилла triage
+        run: npx -y skills add mattpocock/skills --skill triage -a opencode -g -y
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Ключ провайдера — только из Secrets
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Чтение и метки обращений из сессии агента (gh CLI)
+          GH_TOKEN: ${{ github.token }}
+        with:
+          # Провайдер OpenCode (Console «Hexlet Students»), модель без списаний
+          model: opencode/mimo-v2.6-flash-free
+          # Сессии не публикуются (решение для открытого репозитория)
+          share: "false"
+          # Инструкция автотриажа — у события issues нет комментария-команды
+          prompt: |
+            Автотриаж нового обращения в этом репозитории. Запусти скилл triage
+            на только что открытом issue: прочитай тело и комментарии обращения,
+            проверь по коду и контракту, умеет ли приложение то, о чём просят
+            (поиск по доменной лексике, GLOSSARY.md, docs/adr/), и было ли такое
+            уже отвергнуто.
+
+            Правила:
+            - Код НЕ менять, ветки не создавать, PR не открывать — только разбор.
+            - Если данных для решения не хватает, задай автору конкретные
+              уточняющие вопросы в комментарии и переведи обращение в
+              needs-info; метки проставляй через gh по словарю из
+              docs/agents/issue-tracker.md (needs-triage → needs-info /
+              ready-for-agent / ready-for-human / wontfix + категория).
+            - Если обращение согласовано полностью, предложи следующий шаг и
+              переведи в ready-for-agent, но to-spec/to-tickets не запускай —
+              спецификацию делает человек по своему вызову.
+            - Ответ оставь структурированным комментарием: что проверено,
+              где посмотрел, вопросы или рекомендация, следующая метка.
