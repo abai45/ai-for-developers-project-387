@@ -112,3 +112,112 @@ test('конфликт 409: занятый соперником слот воз�
   // «Продолжить» не активна без нового выбора.
   await expect(page.getByRole('button', { name: 'Продолжить' })).toBeDisabled()
 })
+
+test('тема разговора: поле на шаге «Имя», тема на «Вы записаны» и строкой в карточке владельца; без темы строки нет', async ({
+  page,
+}) => {
+  const typeName = `E2E тема ${Date.now()}`
+  const guestWithTopic = `Гость с темой ${Date.now()}`
+  const guestWithoutTopic = `Гость без темы ${Date.now()}`
+  const topic = `Обсудить roadmap ${Date.now()}`
+  await createTypeViaOwnerUi(page, typeName)
+
+  // Основной сценарий: ввод темы → подтверждение → экран «Вы записаны» → карточка владельца.
+  await page.goto('/book')
+  await page.getByRole('button').filter({ hasText: typeName }).click()
+  await pickFirstDay(page)
+  await pickFirstFreeSlot(page)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+
+  await expect(page.getByLabel('Тема разговора')).toBeVisible()
+  await page.getByLabel('Ваше имя').fill(guestWithTopic)
+  await page.getByLabel('Тема разговора').fill(topic)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+
+  // Тема не показывается на шаге «Подтверждение» (вне согласованного объёма).
+  await expect(page.getByText(`Тема: ${topic}`)).toHaveCount(0)
+  await page.getByRole('button', { name: 'Подтвердить запись' }).click()
+
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Вы записаны' }),
+  ).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithTopic}`)).toBeVisible()
+  await expect(page.getByText(`Тема: ${topic}`)).toBeVisible()
+
+  // Соседний сценарий: запись без темы — на «Вы записаны» строки темы нет.
+  await page.goto('/book')
+  await page.getByRole('button').filter({ hasText: typeName }).click()
+  await pickFirstDay(page)
+  await pickFirstFreeSlot(page)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.getByLabel('Ваше имя').fill(guestWithoutTopic)
+  await expect(page.getByLabel('Тема разговора')).toHaveValue('')
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.getByRole('button', { name: 'Подтвердить запись' }).click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Вы записаны' }),
+  ).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithoutTopic}`)).toBeVisible()
+  await expect(page.getByText('Тема: ')).toHaveCount(0)
+
+  // Владелец: строка темы под именем гостя только при заполненной теме.
+  await page.goto('/owner')
+  await expect(page.getByRole('heading', { level: 2, name: 'Предстоящие встречи' })).toBeVisible()
+  await expect(page.getByText(`Гость: ${guestWithTopic}`)).toBeVisible()
+  await expect(page.getByText(`Тема: ${topic}`)).toBeVisible()
+  const withoutTopicCard = page
+    .locator('li')
+    .filter({ hasText: guestWithoutTopic })
+    .first()
+  await expect(withoutTopicCard).toBeVisible()
+  await expect(withoutTopicCard.getByText('Тема: ')).toHaveCount(0)
+})
+
+test('регрессия: тема с краевыми пробелами уходит обрезанной — на «Вы записаны» и в карточке владельца без краев', async ({
+  page,
+}) => {
+  const typeName = `E2E тема-обрезка ${Date.now()}`
+  const guest = `Гость пробелы ${Date.now()}`
+  const rawTopic = `  roadmap ${Date.now()}  `
+  const trimmedTopic = rawTopic.trim()
+  await createTypeViaOwnerUi(page, typeName)
+
+  // Тела POST /api/meetings — чтобы утвердить, что в запрос ушла обрезанная тема.
+  const postBodies: Array<{ topic?: string }> = []
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().includes('/api/meetings')) {
+      postBodies.push(JSON.parse(request.postData() || '{}'))
+    }
+  })
+
+  await page.goto('/book')
+  await page.getByRole('button').filter({ hasText: typeName }).click()
+  await pickFirstDay(page)
+  await pickFirstFreeSlot(page)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+
+  await page.getByLabel('Ваше имя').fill(guest)
+  await page.getByLabel('Тема разговора').fill(rawTopic)
+  await page.getByRole('button', { name: 'Продолжить' }).click()
+  await page.getByRole('button', { name: 'Подтвердить запись' }).click()
+
+  // Тело запроса несёт обрезанное значение (не «  roadmap  »).
+  expect(postBodies.at(-1)?.topic).toBe(trimmedTopic)
+
+  // Экран «Вы записаны»: точный текст строки темы — без краевых пробелов.
+  // toBe по textContent не нормализует пробелы (в отличие от getByText).
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Вы записаны' }),
+  ).toBeVisible()
+  await expect(page.getByText(`Гость: ${guest}`)).toBeVisible()
+  const successTopic = page.locator('p').filter({ hasText: 'Тема:' }).first()
+  expect(await successTopic.textContent()).toBe(`Тема: ${trimmedTopic}`)
+
+  // Карточка владельца: та же обрезанная тема, краевых пробелов нет.
+  await page.goto('/owner')
+  await expect(page.getByRole('heading', { level: 2, name: 'Предстоящие встречи' })).toBeVisible()
+  const card = page.locator('li').filter({ hasText: guest }).first()
+  await expect(card).toBeVisible()
+  const cardTopic = card.locator('p').filter({ hasText: 'Тема:' }).first()
+  expect(await cardTopic.textContent()).toBe(`Тема: ${trimmedTopic}`)
+})

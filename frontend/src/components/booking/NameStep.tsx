@@ -14,7 +14,9 @@ export default function NameStep({
   selectedDay,
   selectedSlot,
   guestName,
+  topic,
   onNameChange,
+  onTopicChange,
   onBack,
   onNext,
 }: {
@@ -22,7 +24,9 @@ export default function NameStep({
   selectedDay: string
   selectedSlot: Slot
   guestName: string
+  topic: string
   onNameChange: (name: string) => void
+  onTopicChange: (topic: string) => void
   onBack: () => void
   onNext: () => void
 }) {
@@ -51,6 +55,19 @@ export default function NameStep({
                 required
                 maxLength={100}
               />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="guest-topic">Тема разговора</Label>
+              <Input
+                id="guest-topic"
+                value={topic}
+                onChange={event => onTopicChange(event.target.value)}
+                maxLength={100}
+                aria-describedby="guest-topic-hint"
+              />
+              <p id="guest-topic-hint" className="text-muted-foreground text-xs">
+                Необязательно, до 100 символов
+              </p>
             </div>
           </form>
           <div className="mt-4 flex justify-between">

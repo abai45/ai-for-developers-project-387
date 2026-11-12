@@ -98,6 +98,8 @@ function MeetingCard({ meeting, typeName }: { meeting: MeetingView; typeName: st
     <div className="flex flex-col gap-1 rounded-xl border p-4">
       <p className="font-medium">{typeName}</p>
       <p className="text-muted-foreground text-sm">Гость: {meeting.guestName}</p>
+      {/* Строка темы — только при непустом значении; без темы вид карточки не меняется. */}
+      {meeting.topic ? <p className="text-muted-foreground text-sm">Тема: {meeting.topic}</p> : null}
       <p className="text-muted-foreground text-sm">
         {formatOwnerDateTimeRange(meeting.start, meeting.end)}
       </p>

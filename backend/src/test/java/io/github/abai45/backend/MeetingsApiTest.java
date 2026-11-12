@@ -65,6 +65,80 @@ class MeetingsApiTest {
         assertThat(body.getGuestName()).isEqualTo("Мария");
         assertThat(body.getStart()).isEqualTo(slot.getStart());
         assertThat(body.getEnd()).isEqualTo(slot.getStart().plusMinutes(30));
+        // Соседний сценарий: запись без темы — темы в ответе нет.
+        assertThat(body.getTopic()).isNull();
+    }
+
+    @Test
+    void createMeetingWithTopicReturns201WithTopic() {
+        EventTypeView type = createType("Запись с темой", 30, 15);
+        // Свой день: встречи разных типов пересекаются в одном интервале (409).
+        Slot slot = slotAt(type.getId(), 5, 0);
+
+        Meeting request = meeting(type.getId(), "Анна", slot.getStart());
+        request.setTopic("Обсудить план релиза");
+        ResponseEntity<MeetingView> response =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        MeetingView body = response.getBody();
+        assertThat(body).isNotNull();
+        assertThat(body.getTopic()).isEqualTo("Обсудить план релиза");
+    }
+
+    @Test
+    void blankTopicIsNormalizedToAbsentIn201AndList() {
+        EventTypeView type = createType("Пустая тема", 30, 15);
+        Slot slot = slotAt(type.getId(), 6, 0);
+
+        Meeting request = meeting(type.getId(), "Без темы", slot.getStart());
+        request.setTopic("   ");
+        ResponseEntity<MeetingView> created =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody()).isNotNull();
+        assertThat(created.getBody().getTopic()).isNull();
+
+        List<MeetingView> meetings = listMeetings();
+        assertThat(meetings)
+                .filteredOn(m -> "Без темы".equals(m.getGuestName()))
+                .allSatisfy(m -> assertThat(m.getTopic()).isNull());
+    }
+
+    @Test
+    void oversizedTopicReturns400WithFieldError() {
+        EventTypeView type = createType("Длинная тема", 30, 15);
+        Slot slot = slotAt(type.getId(), 1, 1);
+
+        Meeting request = meeting(type.getId(), "Разговорчивый", slot.getStart());
+        request.setTopic("б".repeat(101));
+        ResponseEntity<String> response =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(contentTypeIsProblem(response)).isTrue();
+        assertThat(response.getBody()).contains("\"status\":400").contains("\"field\":\"topic\"");
+    }
+
+    @Test
+    void listMeetingsReturnsNonEmptyTopic() {
+        EventTypeView type = createType("Список с темой", 30, 15);
+        Slot slot = slotAt(type.getId(), 7, 0);
+
+        Meeting request = meeting(type.getId(), "Темный лорд", slot.getStart());
+        request.setTopic("Стратегия квартала");
+        ResponseEntity<MeetingView> created =
+                restTemplate.exchange("/api/meetings", HttpMethod.POST, json(request), MeetingView.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        List<MeetingView> meetings = listMeetings();
+        assertThat(meetings)
+                .filteredOn(m -> "Темный лорд".equals(m.getGuestName()))
+                .hasSize(1)
+                .first()
+                .extracting(MeetingView::getTopic)
+                .isEqualTo("Стратегия квартала");
     }
 
     @Test
@@ -237,6 +311,17 @@ class MeetingsApiTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         return List.of(response.getBody());
+    }
+
+    private List<MeetingView> listMeetings() {
+        ResponseEntity<List<MeetingView>> response = restTemplate.exchange(
+                "/api/meetings",
+                HttpMethod.GET,
+                null,
+                new org.springframework.core.ParameterizedTypeReference<List<MeetingView>>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isNotNull();
+        return response.getBody();
     }
 
     private ResponseEntity<String> postMeeting(String eventTypeId, String guestName, OffsetDateTime start) {
