@@ -96,21 +96,21 @@ jobs:
 
   publish:
     needs: review
+    if: always() && needs.review.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
       pull-requests: write
-    concurrency:
-      group: review-${{ github.event.pull_request.number }}
-      cancel-in-progress: false
     steps:
       - name: Download review body
+        if: needs.review.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: review-body
 
       - name: Опубликовать ревью комментарием
+        if: needs.review.result == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -122,4 +122,19 @@ jobs:
             echo
             cat review.md
           } > body.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file body.md
+
+      # Сбой ревью не должен выглядеть как «ревьюер молчит»: публикация
+      # чинится здесь, ревью-джоба — нет. Причина и лог — в комментарии.
+      - name: Опубликовать статус сбоя ревью
+        if: needs.review.result != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          cat > body.md <<EOF
+          > Автоторевью не состоялось: ревью-задача завершилась со статусом \`${{ needs.review.result }}\`.
+          > Причина — в логах прогона: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          > Это \`review_failed\`, а не «дефектов нет». Ревью можно повторить: convert-to-draft → ready.
+          EOF
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file body.md

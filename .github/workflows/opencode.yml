@@ -97,9 +97,15 @@ jobs:
             const spendComments = humans.filter(
               (c) =>
                 c.user?.type !== 'Bot' &&
+                ['OWNER', 'MEMBER', 'COLLABORATOR'].includes(c.author_association) &&
                 (c.body?.includes('/oc') || c.body?.includes('/opencode')),
             ).length;
             const threadTitle = context.payload.issue?.title ?? context.payload.pull_request?.title ?? '';
+            // История привязана к моменту создания треда: одноимённый новый
+            // issue не наследует чужие попытки, а переименование старого
+            // обнуляет только историю-сторону (комментарии-сторона жива).
+            const threadCreated =
+              context.payload.issue?.created_at ?? context.payload.pull_request?.created_at;
             const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -110,6 +116,7 @@ jobs:
               .filter(
                 (r) =>
                   r.display_title === threadTitle &&
+                  (!threadCreated || r.created_at >= threadCreated) &&
                   (r.event === 'issue_comment' || r.event === 'pull_request_review_comment') &&
                   r.conclusion !== 'skipped',
               )
