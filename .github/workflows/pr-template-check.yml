@@ -1,0 +1,71 @@
+# Проверка: тело PR соответствует .github/pull_request_template.md (issue #23).
+#
+# История размещения: GitHub App, которым работает агент, не имеет права
+# `workflows` и не мог закоммитить файл в .github/workflows/ — агент положил
+# его в tools/, человек перенёс транспортным коммитом. Файл на месте, чек
+# исполняется.
+#
+# Детерминированная защита класса замечания 1 ревью PR #21: тело без
+# обязательных секций («Контекст / Что делает PR / Проверки / Риск / Откат»)
+# не доходит до мержа. Модель и секреты не используются.
+name: pr-template-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# gh читает тело PR токеном воркфлоу — только на чтение.
+permissions:
+  pull-requests: read
+
+jobs:
+  pr-template-check:
+    # Тело PR из этой ветки генерирует release-please — шаблон не применяется.
+    if: github.head_ref != 'release-please--branches--main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Проверка секций тела PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          body=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+
+          # HTML-комментарии <!-- --> (в т.ч. многострочные) вырезаются:
+          # секция, содержимое которой — только комментарий, считается пустой.
+          cleaned=$(printf '%s\n' "$body" | perl -0777 -pe 's/<!--.*?-->//gs')
+
+          sections=("Контекст" "Что делает PR" "Проверки" "Риск" "Откат")
+          problems=()
+
+          for sec in "${sections[@]}"; do
+            header="## $sec"
+            # Заголовок распознаётся только как целая строка.
+            if ! printf '%s\n' "$cleaned" | grep -Fxq -- "$header"; then
+              problems+=("нет заголовка «$header»")
+              continue
+            fi
+            content=$(printf '%s\n' "$cleaned" | awk -v hdr="$header" '
+              $0 == hdr { inside = 1; next }
+              /^## / && inside { exit }
+              inside { print }
+            ')
+            if [ -z "$(printf '%s' "$content" | tr -d '[:space:]')" ]; then
+              problems+=("секция «$header» пуста")
+            fi
+          done
+
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          if [ "${#problems[@]}" -gt 0 ]; then
+            {
+              echo "Тело PR не соответствует .github/pull_request_template.md:"
+              printf ' - %s\n' "${problems[@]}"
+            } | tee -a "$summary"
+            exit 1
+          fi
+
+          echo "Все пять секций шаблона найдены и непусты." | tee -a "$summary"
