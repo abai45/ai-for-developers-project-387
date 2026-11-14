@@ -34,7 +34,7 @@
 
 **Что установлено.** На репозиторий установлен [GitHub App opencode-agent](https://github.com/apps/opencode-agent) — он даёт агенту права на комментарии и push через OIDC-обмен (`id-token: write`), а `GITHUB_TOKEN` воркфлоу остаётся только на чтение. **Отличие от другого способа:** можно обойтись без App, передав в воркфлоу свой токен (`use_github_token: true`) — тогда права на запись и push настраиваются вручную через `GITHUB_TOKEN`, и это не тот же сценарий «агента приложения»; здесь выбран стандартный режим с App.
 
-**Воркфлоу:** два, оба замержены в `main` — интерактивный [.github/workflows/opencode.yml](.github/workflows/opencode.yml) и автотриаж [.github/workflows/opencode-triage.yml](.github/workflows/opencode-triage.yml).
+**Воркфлоу:** все замержены в `main` — интерактивный [.github/workflows/opencode.yml](.github/workflows/opencode.yml) и автотриаж [.github/workflows/opencode-triage.yml](.github/workflows/opencode-triage.yml) (ниже), цикл ревью (подраздел «Цикл ревью pull request») и ежедневный аудит (подраздел «Ежедневный аудит Lighthouse»).
 
 | Параметр | Значение |
 | --- | --- |
@@ -85,6 +85,25 @@
 **[pr-template-check.yml](.github/workflows/pr-template-check.yml)** — детерминированная защита класса «незаполненное тело PR» (замечание 1 ревью PR #21): на `pull_request` (`opened`, `synchronize`, `reopened`) требует пять секций шаблона с непустым содержимым — правка тела без нового коммита (`edited`) чек не перезапускает, исправленное тело подтверждается следующим push или `Re-run`; `pull-requests: read`, `timeout-minutes: 5`, без модели и секретов; ветка release-please исключена.
 
 **Предел запусков на PR** ([opencode.yml](.github/workflows/opencode.yml), шаг «Предел запусков»): до вызова модели счётчик по истории Actions (`actions: read`) и человеческим `/oc`-комментариям треда считает допущенные запросы (Re-run, отмены и таймауты тоже попытки), лимит — 3 на тред. При исчерпании модель не вызывается, шаг без модели публикует `limit_exhausted` с причиной, попытками, head SHA и ссылкой на логи; отдельно публикуются `infra` (сбой подготовки/гейта), `agent_failed` (ошибка агента) и `timeout` (снятие прогона). Новый PR/issue получает новый бюджет. Источник счёта токен агента не перезаписывает; тела комментариев ревью на бюджет не влияют.
+
+### Ежедневный аудит Lighthouse (lighthouse-audit.yml)
+
+Раз в сутки приложение проверяется Lighthouse, а агент OpenCode превращает находки отчёта в issue — с дедупликацией, чтобы трекер не плодил повторы.
+
+| Параметр | Значение |
+| --- | --- |
+| События | `schedule` + `workflow_dispatch` (ручной запуск из Actions после мержа в `main`) |
+| Cron | `17 3 * * *` — GitHub считает cron в **UTC**, это 08:17 по времени Алматы (UTC+5), начало рабочего дня |
+| Модель, ключ, share | те же: `opencode/mimo-v2.6-flash-free`, `OPENCODE_API_KEY` из Secrets, `share: "false"`; инструкция — в `prompt` (у событий нет комментария-команды) |
+| Права | ровно `contents: read`, `id-token: write`, `issues: write` (агент создаёт/переоткрывает issue через `gh`); `persist-credentials: false` |
+| Надёжность | `timeout-minutes: 20`; `concurrency: { group: lighthouse-audit, cancel-in-progress: false }` — новый запуск не отменяет идущий аудит |
+| Результат | **артефакт `lighthouse-report`** прогона (json+html-отчёт, `retention-days: 30`, каталог в `.gitignore`) + **issues с меткой `lighthouse-audit`**: заголовок `[Lighthouse] <id>: <суть>`, внутри — проблема, действие, APP_URL, score и ссылка на прогон |
+
+Порядок шагов: checkout → **прогрев Render** (`curl --retry 10 --retry-delay 10` на `/api/health`; бесплатный сервис спит до 30 с — при недоступности шаг падает с явным «Приложение недоступно» и до анализа дело не доходит, чтобы сбой не выглядел как «проблем нет») → `npx lighthouse@13.6.0` (версия запинена: прогоны сравнимы между собой, непроверенный релиз пакета не исполняется) → артефакт (`if: always()`) → агент.
+
+Логика находок в prompt: аудиты с `score < 0.9`, у которых есть причина и действие (информационные без оценки пропускаются); перед созданием issue — поиск дубля `gh issue list --label lighthouse-audit --state all --search "<id>"`; **открытый** дубль — молчать, **закрытый + находка вернулась** — `gh issue reopen` + комментарий со ссылкой на свежий прогон (регрессия не потеряется). Пусто без находок — одна строка «Новых находок нет» в логе.
+
+Успешный первый прогон (ручной dispatch): [run 43600944531](https://github.com/abai45/ai-for-developers-project-387/actions/runs/43600944531) — 11 находок → issue #28–#38 (контраст футера, robots.txt/SPA-fallback, cache TTL, неиспользуемый JS и др.).
 
 ## Как это работает
 
