@@ -53,7 +53,7 @@ jobs:
       - name: Lighthouse audit
         run: |
           mkdir -p lighthouse-report
-          npx --yes lighthouse "${{ vars.APP_URL }}" --chrome-flags="--headless --no-sandbox" --output=json --output=html --output-path=./lighthouse-report/report
+          npx --yes lighthouse@13.6.0 "${{ vars.APP_URL }}" --chrome-flags="--headless --no-sandbox" --output=json --output=html --output-path=./lighthouse-report/report
 
       - name: Загрузить отчёт в артефакт
         if: always()
