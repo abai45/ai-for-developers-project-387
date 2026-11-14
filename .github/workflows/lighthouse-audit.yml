@@ -1,0 +1,90 @@
+name: lighthouse-audit
+
+# Ежедневный аудит Lighthouse с разбором отчёта агентом OpenCode.
+# Способ авторизации, модель, ключ и share скопированы без изменений
+# из opencode-triage.yml (стандартный режим GitHub App: OIDC-обмен через
+# id-token: write, секреты только из Actions Secrets).
+on:
+  schedule:
+    # 03:17 UTC = 08:17 по времени Алматы (UTC+5) — GitHub считает cron в UTC.
+    # Раз в сутки: заодно с прогревом Render и анализом укладывается в timeout.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {} # ручной запуск из вкладки Actions
+
+jobs:
+  audit:
+    # Фильтры из triage (author_association, боты, метки spec/ticket) здесь
+    # не применяются: у событий schedule и workflow_dispatch нет автора issue
+    # и комментария — отсекать нечего, модель вызывается всегда по инструкции.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Один аудит одновременно; новый запуск НЕ отменяет текущий
+    # (cancel-in-progress: false) — отчёт предыгонного прогона не теряется.
+    concurrency:
+      group: lighthouse-audit
+      cancel-in-progress: false
+    # Ровно как в triage: чтение кода, OIDC-обмен на токен App,
+    # issues: write — gh из сессии агента создаёт issue по находкам.
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # git-доступ даёт токен GitHub App, а не checkout
+          persist-credentials: false
+
+      # На бесплатном Render сервис засыпает и поднимается до ~30 секунд;
+      # без прогрева Lighthouse получил бы пустую/ошибочную страницу.
+      - name: Прогрев приложения (Render)
+        run: |
+          echo "Прогреваю ${{ vars.APP_URL }}/api/health (до 10 попыток по 10s)..."
+          if ! curl --fail --silent --show-error --retry 10 --retry-delay 10 --retry-all-errors "${{ vars.APP_URL }}/api/health"; then
+            echo "::error::Приложение недоступно: ${{ vars.APP_URL }} не ответил на /api/health после всех попыток — Lighthouse не запускался, анализ не проводился"
+            exit 1
+          fi
+          echo "Приложение отвечает — прогрев завершён"
+
+      # Каталог ./lighthouse-report/ уже в .gitignore — отчёты в коммиты не
+      # попадают; в git-историю этот шаг ничего не добавляет.
+      - name: Lighthouse audit
+        run: |
+          mkdir -p lighthouse-report
+          npx --yes lighthouse@13.6.0 "${{ vars.APP_URL }}" --chrome-flags="--headless --no-sandbox" --output=json --output=html --output-path=./lighthouse-report/report
+
+      - name: Загрузить отчёт в артефакт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: lighthouse-report/
+          retention-days: 30
+
+      # Формат вызова — как в opencode-triage.yml: у schedule/dispatch нет
+      # комментария-команды, поэтому инструкция передаётся параметром prompt.
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Ключ провайдера — только из Secrets
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # Создание issue по находкам из сессии агента (gh CLI)
+          GH_TOKEN: ${{ github.token }}
+          # Приложение для анализа: контекст vars в окружение шага сам не
+          # попадает — агент читает адрес из этой переменной (prompt п.3)
+          APP_URL: ${{ vars.APP_URL }}
+        with:
+          # Провайдер OpenCode (Console «Hexlet Students»), модель без списаний
+          model: opencode/mimo-v2.6-flash-free
+          # Сессии не публикуются (решение для открытого репозитория)
+          share: "false"
+          prompt: |
+            Ты разбираешь отчёт Lighthouse для приложения по адресу из переменной APP_URL. Отчёт лежит в `lighthouse-report/report.report.json` (если файла нет, найди `lighthouse-report/*.json`).
+            1. Прочитай отчёт и выбери конкретные находки: аудиты с оценкой ниже 0.9 (score < 0.9), у которых есть понятная причина и действие. Пропускай информационные аудиты без оценки.
+            2. Для каждой находки перед созданием issue проверь дубли: выполни `gh issue list --label lighthouse-audit --state all --search "<id аудита>" --json number,title,state`. Если по аудиту есть ОТКРЫТЫЙ issue и новых сведений нет — ничего не создавай и не оставляй повторных комментариев. Если issue по аудиту есть, но ЗАКРЫТ, а находка вернулась (аудит снова score < 0.9) — переоткрой его командой `gh issue reopen <номер>` и оставь один комментарий со ссылкой на свежий прогон.
+            3. По каждой новой находке создай отдельный issue командой `gh issue create`. Заголовок: `[Lighthouse] <id аудита>: <суть проблемы>`. Метка: `lighthouse-audit`. Тело: описание проблемы, предлагаемое действие, какое приложение проверялось (значение APP_URL) и ссылка на прогон $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID.
+            4. Если новых находок нет, выведи одну строку «Новых находок нет» с ссылкой на прогон и ничего не создавай.
+            5. В конце выведи итог: сколько находок найдено, сколько issue создано, сколько переоткрыто, сколько пропущено как дубли.
+            Код не меняй, коммитов и PR не создавай, файлы отчёта в репозиторий не добавляй.
